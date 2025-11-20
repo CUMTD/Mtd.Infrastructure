@@ -1,0 +1,63 @@
+name: Publish Release
+
+on:
+  release:
+    types: [created]
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+env:
+  SOLUTION: "Mtd.Infrastructure.slnx"
+  OUTPUT: "nupkgs"
+  TAG_NAME: ${{ github.event.release.tag_name }}
+  NUGET_URL: "https://nuget.pkg.github.com/cumtd/index.json"
+
+jobs:
+  build-pack-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+
+    env:
+      MtdGithubUserName: CUMTD
+      MtdGithubAccessToken: ${{ secrets.GITHUB_TOKEN }}
+
+    strategy:
+      matrix:
+        package:
+          - id: Mtd.Infrastructure.EfCore
+            path: Mtd.Infrastructure.EfCore/Mtd.Infrastructure.EfCore.csproj
+          - id: Mtd.Infrastructure.EFCore.Bulk
+            path: Mtd.Infrastructure.EFCore.Bulk/Mtd.Infrastructure.EFCore.Bulk.csproj
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Set VERSION variable from tag
+        run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV
+
+      - name: Restore solution
+        run: dotnet restore -p:Version=$VERSION "$SOLUTION"
+
+      - name: Pack ${{ matrix.package.id }}
+        run: |
+          mkdir -p "$OUTPUT"
+          dotnet pack "${{ matrix.package.path }}" \
+            -c Release \
+            --no-restore \
+            -p:Version=$VERSION \
+            -p:PackageVersion=$VERSION \
+            -o "$OUTPUT"
+
+      - name: Publish ${{ matrix.package.id }} to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dotnet nuget push "$OUTPUT/${{ matrix.package.id }}.$VERSION.nupkg"  --source "$NUGET_URL" --api-key "${GITHUB_TOKEN}" --skip-duplicate
+          dotnet nuget push "$OUTPUT/${{ matrix.package.id }}.$VERSION.snupkg" --source "$NUGET_URL" --api-key "${GITHUB_TOKEN}" --skip-duplicate
